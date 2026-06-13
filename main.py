@@ -1,5 +1,32 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List
+import schemas, database
+import pdfplumber
+import io
+import re
+
+# Primero se crea la base de datos
+database.Base.metadata.create_all(bind=database.engine)
+
+# Segundo se crea la APP (La casa)
+app = FastAPI(title="API CREAdesign")
+
+# Tercero se le pone el escudo CORS (La puerta abierta para Vercel)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def get_db():
+    # ... aquí sigue tu código normal ...
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
 import database, schemas
