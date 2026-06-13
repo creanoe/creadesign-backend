@@ -277,3 +277,167 @@ async def leer_cartola(file: UploadFile = File(...)):
         return {"sugerencias": sugerencias}
     except Exception as e:
         return {"error": str(e)}
+    
+@app.post("/upload-factura/")
+async def leer_factura(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        filename = file.filename.lower()
+        
+        proveedor = {"rut": "", "razon_social": ""}
+        items_detectados = []
+        total_factura = 0
+
+        # ==========================================
+        # LÓGICA 1: LECTURA PERFECTA DE XML DEL SII
+        # ==========================================
+        if filename.endswith('.xml'):
+            texto_xml = content.decode('utf-8', errors='ignore')
+            
+            # Buscar RUT y Razón Social
+            rut_match = re.search(r'<RUTEmisor>([^<]+)</RUTEmisor>', texto_xml)
+            if rut_match: proveedor["rut"] = rut_match.group(1)
+            
+            rz_match = re.search(r'<RznSoc>([^<]+)</RznSoc>', texto_xml)
+            if rz_match: proveedor["razon_social"] = rz_match.group(1)[:60].strip()
+            
+            # Buscar Total
+            tot_match = re.search(r'<MntTotal>([^<]+)</MntTotal>', texto_xml)
+            if tot_match: 
+                try: total_factura = int(tot_match.group(1))
+                except: pass
+            
+            # Buscar todos los Ítems (Detalles)
+            detalles = re.findall(r'<Detalle>(.*?)</Detalle>', texto_xml, re.DOTALL)
+            for det in detalles:
+                nombre = "Item sin nombre"
+                n_match = re.search(r'<NmbItem>([^<]+)</NmbItem>', det)
+                if n_match: nombre = n_match.group(1)[:80].strip()
+                
+                cantidad = 1
+                q_match = re.search(r'<QtyItem>([^<]+)</QtyItem>', det)
+                if q_match:
+                    try: cantidad = int(float(q_match.group(1)))
+                    except: pass
+                    
+                um = "UN"
+                u_match = re.search(r'<UnmdItem>([^<]+)</UnmdItem>', det)
+                if u_match: um = u_match.group(1)[:4].upper()
+                
+                codigo = ""
+                c_match = re.search(r'<VlrCodigo>([^<]+)</VlrCodigo>', det)
+                if c_match: codigo = c_match.group(1)[:15]
+                else:
+                    palabras = [p for p in nombre.split() if len(p) > 2 and not any(c.isdigit() for c in p)]
+                    if len(palabras) >= 2: codigo = f"{palabras[0][:3]}-{palabras[1][:3]}".upper()
+                    else: codigo = f"MAT-{cantidad}"
+                    
+                items_detectados.append({
+                    "codigo": codigo,
+                    "nombre": nombre,
+                    "categoria": "Insumos Varios",
+                    "unidad_medida": um,
+                    "cantidad_ingresar": cantidad
+                })
+
+        # ==========================================
+        # LÓGICA 2: EL SABUESO DE PDF (Respaldo)
+        # ==========================================
+        elif filename.endswith('.pdf'):
+            pdf_file = io.BytesIO(content)
+            with pdfplumber.open(pdf_file) as pdf:
+                texto_completo = ""
+                for page in pdf.pages:
+                    t = page.extract_text()
+                    if t: texto_completo += t + "\n"
+                    
+                lineas = [l.strip() for l in texto_completo.split('\n') if l.strip()]
+                
+                basura_sii = ["DOCUMENTO", "ELECTRÓNICO", "ELECTRONICO", "RECIBIDO", "FACTURA", "R.U.T", "RUT:", "S.I.I", "COPIA", "CEDIBLE", "TIMBRE", "RESOLUCION", "FOLIO", "EMISIÓN", "SEÑOR(ES)"]
+                for linea in lineas[:25]:
+                    lin_up = linea.upper()
+                    if any(b in lin_up for b in basura_sii) or re.search(r'\d{1,2}\.\d{3}\.\d{3}', lin_up): continue
+                    if lin_up.startswith("GIRO") or lin_up.startswith("DIRECCION") or lin_up.startswith("COMUNA") or lin_up.startswith("CONTACTO"): continue
+                    if len(lin_up) > 3 and not re.match(r'^\d+$', lin_up):
+                        if not proveedor["razon_social"]:
+                            proveedor["razon_social"] = linea[:60].strip()
+                            break 
+                
+                for linea in lineas:
+                    rut_match = re.search(r'(\d{1,2}\.\d{3}\.\d{3}-[\dKk])', linea)
+                    if rut_match:
+                        proveedor["rut"] = rut_match.group(1)
+                        break
+
+                for linea in reversed(lineas):
+                    lin_limpia = linea.upper().replace(' ', '')
+                    if "MONTOTOTAL" in lin_limpia or "TOTALEXENTO" in lin_limpia or "TOTAL$" in lin_limpia or lin_limpia.startswith("TOTAL"):
+                        montos = re.findall(r'\d{1,3}(?:\.\d{3})*', linea) 
+                        if not montos: montos = re.findall(r'\d+', lin_limpia)
+                        if montos:
+                            try:
+                                total_factura = int(montos[-1].replace('.', ''))
+                                if total_factura > 0: break
+                            except: pass
+
+                leyendo_items = False
+                for linea in lineas:
+                    lin_up = linea.upper()
+                    tiene_cantidad = any(p in lin_up for p in ["CANTIDAD", "CANT."])
+                    tiene_detalle = any(p in lin_up for p in ["DESCRIPCION", "DETALLE", "CODIGO", "ARTÍCULO", "ARTICULO"])
+                    
+                    if (tiene_cantidad and tiene_detalle) or ("ARTÍCULO" in lin_up and "VALOR" in lin_up):
+                        leyendo_items = True
+                        continue
+                        
+                    if any(p in lin_up for p in ["MONTO NETO", "SUBTOTAL", "IVA 19", "SON:", "TIMBRE", "REFERENCIAS"]):
+                        leyendo_items = False
+                        
+                    if leyendo_items:
+                        match_um = re.search(r'\b(\d+[\.,]?\d*)\s+(UN|MT|ML|RL|KG|LTS|PAR|CJA|M2|SET|PL|C/U|TIRA|X)\b', lin_up)
+                        if match_um:
+                            cantidad_str = match_um.group(1).replace(',', '.')
+                            try: cantidad = int(float(cantidad_str))
+                            except: cantidad = 1
+                            if cantidad <= 0: cantidad = 1
+                            um = match_um.group(2)
+                            if um == 'X': um = 'UN'
+                            
+                            inicio_match, fin_match = match_um.start(), match_um.end()
+                            antes_str, despues_str = linea[:inicio_match].strip(), linea[fin_match:].strip()
+                            despues_limpio = re.sub(r'(\s+\$?\d+[\.,]?\d*\s*[%$]*)+$', '', despues_str).strip()
+                            
+                            codigo, desc = "", ""
+                            if re.search(r'[A-Za-z]{3,}', despues_limpio):
+                                desc = despues_limpio
+                                partes_antes = antes_str.split()
+                                if partes_antes: codigo = partes_antes[-1]
+                            else:
+                                antes_limpio = re.sub(r'^\d+\s+', '', antes_str).strip()
+                                desc = antes_limpio
+                                cod_match = re.search(r'^([A-Za-z0-9\-]{3,10})\b', antes_limpio)
+                                if cod_match: codigo = cod_match.group(1)
+                                
+                            if len(desc) < 3 or "PAGINA" in desc.upper(): continue
+                                
+                            if not codigo:
+                                palabras = [p for p in desc.split() if len(p) > 2 and not any(c.isdigit() for c in p)]
+                                if len(palabras) >= 2: codigo = f"{palabras[0][:3]}-{palabras[1][:3]}".upper()
+                                else: codigo = f"MAT-{cantidad}"
+                                
+                            items_detectados.append({
+                                "codigo": codigo[:15],
+                                "nombre": desc[:80],
+                                "categoria": "Insumos Varios",
+                                "unidad_medida": um,
+                                "cantidad_ingresar": cantidad
+                            })
+        else:
+            return {"error": "Por favor sube un archivo PDF o XML."}
+
+        if not proveedor["razon_social"]: proveedor["razon_social"] = "Proveedor Desconocido"
+        if not items_detectados: items_detectados.append({"codigo": "GEN-01", "nombre": "Materiales Varios", "categoria": "Sustratos", "unidad_medida": "UN", "cantidad_ingresar": 1})
+
+        return {"proveedor": proveedor, "total": total_factura, "items": items_detectados}
+    except Exception as e:
+        return {"error": str(e)}
