@@ -1,43 +1,43 @@
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import List
-import schemas, database
-import pdfplumber
-import io
-import re
-
-# Primero se crea la base de datos
-database.Base.metadata.create_all(bind=database.engine)
-
-# Segundo se crea la APP (La casa)
-app = FastAPI(title="API CREAdesign")
-
-# Tercero se le pone el escudo CORS (La puerta abierta para Vercel)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-def get_db():
-    # ... aquí sigue tu código normal ...
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy import text
+from pydantic import BaseModel
 from typing import List
 import database, schemas
-from fastapi import UploadFile, File
 import pdfplumber
 import io
 import re
 
+# 1. CREAR BASE DE DATOS
 database.Base.metadata.create_all(bind=database.engine)
+
+# 2. INICIAR LA APP
 app = FastAPI(title="API CREAdesign")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# 3. ESCUDO CORS PARA VERCEL
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=["*"], 
+    allow_credentials=True, 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+
+# 4. CREACIÓN FORZADA DE TABLA USUARIOS (BLINDAJE TOTAL)
+try:
+    with database.engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username VARCHAR(50) UNIQUE,
+                password VARCHAR(50),
+                rol VARCHAR(20) DEFAULT 'Taller'
+            )
+        """))
+        conn.execute(text("ALTER TABLE usuarios ADD COLUMN rol VARCHAR(20) DEFAULT 'Taller'"))
+except:
+    pass # Si la columna ya existe, ignora el error y sigue
 
 def get_db():
     db = database.SessionLocal()
@@ -54,7 +54,8 @@ def crear_material(material: schemas.MaterialCreate, db: Session = Depends(get_d
     return nuevo_material
 
 @app.get("/materiales/", response_model=List[schemas.MaterialResponse])
-def obtener_materiales(db: Session = Depends(get_db)): return db.query(database.Material).all()
+def obtener_materiales(db: Session = Depends(get_db)): 
+    return db.query(database.Material).all()
 
 @app.put("/materiales/{material_id}", response_model=schemas.MaterialResponse)
 def actualizar_material(material_id: int, material: schemas.MaterialCreate, db: Session = Depends(get_db)):
@@ -81,7 +82,8 @@ def crear_cliente(cliente: schemas.ClienteCreate, db: Session = Depends(get_db))
     return nuevo_cliente
 
 @app.get("/clientes/", response_model=List[schemas.ClienteResponse])
-def obtener_clientes(db: Session = Depends(get_db)): return db.query(database.Cliente).all()
+def obtener_clientes(db: Session = Depends(get_db)): 
+    return db.query(database.Cliente).all()
 
 @app.put("/clientes/{cliente_id}", response_model=schemas.ClienteResponse)
 def actualizar_cliente(cliente_id: int, cliente: schemas.ClienteCreate, db: Session = Depends(get_db)):
@@ -113,7 +115,17 @@ def crear_cotizacion(cotizacion: schemas.CotizacionCreate, db: Session = Depends
     return nueva_cotizacion
 
 @app.get("/cotizaciones/", response_model=List[schemas.CotizacionResponse])
-def obtener_cotizaciones(db: Session = Depends(get_db)): return db.query(database.Cotizacion).all()
+def obtener_cotizaciones(db: Session = Depends(get_db)): 
+    return db.query(database.Cotizacion).all()
+
+@app.delete("/cotizaciones/{cotizacion_id}")
+def delete_cotizacion(cotizacion_id: int, db: Session = Depends(get_db)):
+    db_cot = db.query(database.Cotizacion).filter(database.Cotizacion.id == cotizacion_id).first()
+    if not db_cot:
+        raise HTTPException(status_code=404, detail="Cotización no encontrada")
+    db.delete(db_cot)
+    db.commit()
+    return {"mensaje": "Cotización eliminada correctamente"}
 
 # --- ORDENES ---
 @app.post("/ordenes/", response_model=schemas.OrdenTrabajoResponse)
@@ -125,7 +137,8 @@ def crear_orden_trabajo(orden: schemas.OrdenTrabajoCreate, db: Session = Depends
     return nueva_orden
 
 @app.get("/ordenes/", response_model=List[schemas.OrdenTrabajoResponse])
-def obtener_ordenes_trabajo(db: Session = Depends(get_db)): return db.query(database.OrdenTrabajo).all()
+def obtener_ordenes_trabajo(db: Session = Depends(get_db)): 
+    return db.query(database.OrdenTrabajo).all()
 
 @app.put("/ordenes/{orden_id}", response_model=schemas.OrdenTrabajoResponse)
 def actualizar_estado_orden(orden_id: int, orden: schemas.OrdenTrabajoCreate, db: Session = Depends(get_db)):
@@ -152,7 +165,8 @@ def crear_movimiento(movimiento: schemas.MovimientoCreate, db: Session = Depends
     return nuevo_movimiento
 
 @app.get("/movimientos/", response_model=List[schemas.MovimientoResponse])
-def obtener_movimientos(db: Session = Depends(get_db)): return db.query(database.Movimiento).order_by(database.Movimiento.fecha.desc()).all()
+def obtener_movimientos(db: Session = Depends(get_db)): 
+    return db.query(database.Movimiento).order_by(database.Movimiento.fecha.desc()).all()
 
 @app.delete("/movimientos/{mov_id}")
 def eliminar_movimiento(mov_id: int, db: Session = Depends(get_db)):
@@ -162,12 +176,9 @@ def eliminar_movimiento(mov_id: int, db: Session = Depends(get_db)):
 
 @app.put("/movimientos/{movimiento_id}")
 def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Session = Depends(get_db)):
-    # Buscamos en "database" en lugar de "models"
     db_mov = db.query(database.Movimiento).filter(database.Movimiento.id == movimiento_id).first()
+    if not db_mov: raise HTTPException(status_code=404, detail="Movimiento no encontrado")
     
-    if not db_mov:
-        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
-        
     db_mov.tipo = mov.tipo
     db_mov.categoria = mov.categoria
     db_mov.monto = mov.monto
@@ -180,18 +191,7 @@ def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Sessi
     db.refresh(db_mov)
     return db_mov
 
-@app.delete("/cotizaciones/{cotizacion_id}")
-def delete_cotizacion(cotizacion_id: int, db: Session = Depends(get_db)):
-    # Buscamos la cotización en la base de datos
-    db_cot = db.query(database.Cotizacion).filter(database.Cotizacion.id == cotizacion_id).first()
-    
-    if not db_cot:
-        raise HTTPException(status_code=404, detail="Cotización no encontrada")
-        
-    db.delete(db_cot)
-    db.commit()
-    return {"mensaje": "Cotización eliminada correctamente"}
-
+# --- LECTORES INTELIGENTES ---
 @app.post("/upload-cartola/")
 async def leer_cartola(file: UploadFile = File(...)):
     try:
@@ -200,17 +200,14 @@ async def leer_cartola(file: UploadFile = File(...)):
         sugerencias = []
         
         with pdfplumber.open(pdf_file) as pdf:
-            # 1. Leer TODO el texto oculto para descubrir el banco sin fallar
             texto_completo = ""
             for page in pdf.pages:
                 t = page.extract_text()
                 if t: texto_completo += t.upper() + " "
             
-            banco_detectado = "BancoEstado" # Por defecto
+            banco_detectado = "BancoEstado"
             if "SANTANDER" in texto_completo or "WWW.SANTANDER.CL" in texto_completo or "BANSANDER" in texto_completo:
                 banco_detectado = "Santander"
-            elif "BANCOESTADO" in texto_completo or "BANCO ESTADO" in texto_completo:
-                banco_detectado = "BancoEstado"
 
             for page in pdf.pages:
                 texto = page.extract_text()
@@ -224,59 +221,38 @@ async def leer_cartola(file: UploadFile = File(...)):
                     monto = 0
                     es_cobro_banco = False
                     
-                    if "FECHA" in linea_upper or "CARGO" in linea_upper or "ABONO" in linea_upper or "SALDO" in linea_upper:
-                        continue
+                    if any(x in linea_upper for x in ["FECHA", "CARGO", "ABONO", "SALDO"]): continue
                         
                     montos = re.findall(r'\$\s*-?\s*([\d\.]+)', linea_upper)
                     
-                    # --- LÓGICA BANCOESTADO --- 
-                    if len(montos) >= 3 and ("TEF" in linea_upper or "COMPRA" in linea_upper or "GIRO" in linea_upper or "COMISION" in linea_upper or "IMPUESTO" in linea_upper):
+                    if len(montos) >= 3 and any(x in linea_upper for x in ["TEF", "COMPRA", "GIRO", "COMISION", "IMPUESTO"]):
                         cargo = int(montos[-3].replace('.', ''))
                         abono = int(montos[-2].replace('.', ''))
                         if cargo > 0:
-                            tipo = "Gasto"
-                            monto = cargo
+                            tipo, monto = "Gasto", cargo
                         elif abono > 0:
-                            tipo = "Ingreso"
-                            categoria = "Otros Ingresos"
-                            monto = abono
+                            tipo, categoria, monto = "Ingreso", "Otros Ingresos", abono
                             
-                    # --- LÓGICA SANTANDER --- 
                     elif len(montos) > 0:
                         if "$-" in linea_upper:
-                            tipo = "Gasto"
-                            monto = int(montos[0].replace('.', ''))
-                        elif "TRANSF DE" in linea_upper or "ABONO" in linea_upper:
-                            tipo = "Ingreso"
-                            categoria = "Otros Ingresos"
-                            monto = int(montos[0].replace('.', ''))
-                        elif "COMPRA" in linea_upper or "TRANSF A" in linea_upper or "INTERES" in linea_upper or "COMISION" in linea_upper or "IMPUESTO" in linea_upper or "MANTENCION" in linea_upper or "SOBREGIRO" in linea_upper:
-                            tipo = "Gasto"
-                            monto = int(montos[0].replace('.', ''))
+                            tipo, monto = "Gasto", int(montos[0].replace('.', ''))
+                        elif any(x in linea_upper for x in ["TRANSF DE", "ABONO"]):
+                            tipo, categoria, monto = "Ingreso", "Otros Ingresos", int(montos[0].replace('.', ''))
+                        elif any(x in linea_upper for x in ["COMPRA", "TRANSF A", "INTERES", "COMISION", "IMPUESTO", "MANTENCION", "SOBREGIRO"]):
+                            tipo, monto = "Gasto", int(montos[0].replace('.', ''))
 
-                    if monto == 0:
-                        continue 
+                    if monto == 0: continue 
 
-                    # --- DETECCIÓN DE COBROS BANCARIOS INAMOVIBLES ---
-                    if "COMISION" in linea_upper or "INTERES" in linea_upper or "MANTENCION" in linea_upper or "IMPUESTO" in linea_upper or "SOBREGIRO" in linea_upper:
-                        categoria = "Otros Gastos"
-                        es_cobro_banco = True
-                        linea = f"[Cobro Banco] {linea}" 
+                    if any(x in linea_upper for x in ["COMISION", "INTERES", "MANTENCION", "IMPUESTO", "SOBREGIRO"]):
+                        categoria, es_cobro_banco, linea = "Otros Gastos", True, f"[Cobro Banco] {linea}" 
 
-                    # --- TU CEREBRO BANCARIO ---
                     if not es_cobro_banco:
-                        if "COPEC" in linea_upper or "SHELL" in linea_upper or "PETROBRAS" in linea_upper or "ARAMCO" in linea_upper:
-                            categoria = "Combustible y Peajes"
-                        elif "PREVIRED" in linea_upper or "IMPOSICIONES" in linea_upper:
-                            categoria = "Sueldos e Imposiciones"
-                        elif "STARKEN" in linea_upper or "CHILEXPRESS" in linea_upper or "REPARTIDOR" in linea_upper:
-                            categoria = "Transporte y Encomiendas"
-                        elif "SODIMAC" in linea_upper or "EASY" in linea_upper or "IMPERIAL" in linea_upper or "FERREHOGAR" in linea_upper:
-                            categoria = "Materiales y Sustratos"
-                        elif "RESTAURANT" in linea_upper or "JUMBO" in linea_upper or "STA ISABEL" in linea_upper or "CARNES" in linea_upper or "FINA ESTAMPA" in linea_upper or "TOTTUS" in linea_upper:
-                            categoria = "Colaciones en Terreno"
-                        elif "ARRIENDO" in linea_upper and "MAQUINARIA" in linea_upper:
-                            categoria = "Arriendo de Maquinarias"
+                        if any(x in linea_upper for x in ["COPEC", "SHELL", "PETROBRAS", "ARAMCO"]): categoria = "Combustible y Peajes"
+                        elif any(x in linea_upper for x in ["PREVIRED", "IMPOSICIONES"]): categoria = "Sueldos e Imposiciones"
+                        elif any(x in linea_upper for x in ["STARKEN", "CHILEXPRESS", "REPARTIDOR"]): categoria = "Transporte y Encomiendas"
+                        elif any(x in linea_upper for x in ["SODIMAC", "EASY", "IMPERIAL", "FERREHOGAR"]): categoria = "Materiales y Sustratos"
+                        elif any(x in linea_upper for x in ["RESTAURANT", "JUMBO", "STA ISABEL", "CARNES", "FINA ESTAMPA", "TOTTUS"]): categoria = "Colaciones en Terreno"
+                        elif "ARRIENDO" in linea_upper and "MAQUINARIA" in linea_upper: categoria = "Arriendo de Maquinarias"
 
                     concepto = linea
                     concepto = re.sub(r'^\d{2}/\d{2}/\d{4}', '', concepto) 
@@ -303,31 +279,23 @@ async def leer_factura(file: UploadFile = File(...)):
     try:
         content = await file.read()
         filename = file.filename.lower()
-        
         proveedor = {"rut": "", "razon_social": ""}
         items_detectados = []
         total_factura = 0
 
-        # ==========================================
-        # LÓGICA 1: LECTURA PERFECTA DE XML DEL SII
-        # ==========================================
         if filename.endswith('.xml'):
             texto_xml = content.decode('utf-8', errors='ignore')
-            
-            # Buscar RUT y Razón Social
             rut_match = re.search(r'<RUTEmisor>([^<]+)</RUTEmisor>', texto_xml)
             if rut_match: proveedor["rut"] = rut_match.group(1)
             
             rz_match = re.search(r'<RznSoc>([^<]+)</RznSoc>', texto_xml)
             if rz_match: proveedor["razon_social"] = rz_match.group(1)[:60].strip()
             
-            # Buscar Total
             tot_match = re.search(r'<MntTotal>([^<]+)</MntTotal>', texto_xml)
             if tot_match: 
                 try: total_factura = int(tot_match.group(1))
                 except: pass
             
-            # Buscar todos los Ítems (Detalles)
             detalles = re.findall(r'<Detalle>(.*?)</Detalle>', texto_xml, re.DOTALL)
             for det in detalles:
                 nombre = "Item sin nombre"
@@ -353,16 +321,10 @@ async def leer_factura(file: UploadFile = File(...)):
                     else: codigo = f"MAT-{cantidad}"
                     
                 items_detectados.append({
-                    "codigo": codigo,
-                    "nombre": nombre,
-                    "categoria": "Insumos Varios",
-                    "unidad_medida": um,
-                    "cantidad_ingresar": cantidad
+                    "codigo": codigo, "nombre": nombre, "categoria": "Insumos Varios",
+                    "unidad_medida": um, "cantidad_ingresar": cantidad
                 })
 
-        # ==========================================
-        # LÓGICA 2: EL SABUESO DE PDF (Respaldo)
-        # ==========================================
         elif filename.endswith('.pdf'):
             pdf_file = io.BytesIO(content)
             with pdfplumber.open(pdf_file) as pdf:
@@ -446,14 +408,10 @@ async def leer_factura(file: UploadFile = File(...)):
                                 else: codigo = f"MAT-{cantidad}"
                                 
                             items_detectados.append({
-                                "codigo": codigo[:15],
-                                "nombre": desc[:80],
-                                "categoria": "Insumos Varios",
-                                "unidad_medida": um,
-                                "cantidad_ingresar": cantidad
+                                "codigo": codigo[:15], "nombre": desc[:80], "categoria": "Insumos Varios",
+                                "unidad_medida": um, "cantidad_ingresar": cantidad
                             })
-        else:
-            return {"error": "Por favor sube un archivo PDF o XML."}
+        else: return {"error": "Sube un archivo PDF o XML."}
 
         if not proveedor["razon_social"]: proveedor["razon_social"] = "Proveedor Desconocido"
         if not items_detectados: items_detectados.append({"codigo": "GEN-01", "nombre": "Materiales Varios", "categoria": "Sustratos", "unidad_medida": "UN", "cantidad_ingresar": 1})
@@ -461,27 +419,10 @@ async def leer_factura(file: UploadFile = File(...)):
         return {"proveedor": proveedor, "total": total_factura, "items": items_detectados}
     except Exception as e:
         return {"error": str(e)}
-# ==========================================
-# GESTIÓN DE USUARIOS Y CLAVES (NIVEL DIOS)
-# ==========================================
-from pydantic import BaseModel
-from sqlalchemy import text
-from fastapi import HTTPException
 
-# 1. PARCHE AUTOMÁTICO: Le enseña a tu base de datos antigua a usar "Roles"
-try:
-    with database.engine.begin() as conn:
-        conn.execute(text("ALTER TABLE usuarios ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
-except: pass
-try:
-    with database.engine.begin() as conn:
-        conn.execute(text("ALTER TABLE user ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
-except: pass
-try:
-    with database.engine.begin() as conn:
-        conn.execute(text("ALTER TABLE usuario ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
-except: pass
-
+# ==========================================
+# GESTIÓN DE USUARIOS (BLINDAJE TOTAL SQL)
+# ==========================================
 class UsuarioCreate(BaseModel):
     username: str
     password: str
@@ -495,65 +436,55 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-def get_user_model():
-    if hasattr(database, 'Usuario'): return database.Usuario
-    if hasattr(database, 'User'): return database.User
-    return None
-
-# LOGIN CONECTADO A LA BASE DE DATOS REAL
 @app.post("/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    # 🚨 LLAVE MAESTRA DE EMERGENCIA (Por si alguna vez olvidas tu clave)
+    # 🔑 LA LLAVE MAESTRA
     if req.username.lower() == "francho" and req.password == "creadesign2026":
         return {"username": "Francho (Dios)", "rol": "Admin"}
         
-    Modelo = get_user_model()
-    if Modelo:
-        db_user = db.query(Modelo).filter(Modelo.username == req.username, Modelo.password == req.password).first()
-        if db_user:
-            return {"username": db_user.username, "rol": getattr(db_user, 'rol', 'Taller')}
-            
-    # Si tenías un usuario admin antiguo pegado en el código, lo respetamos temporalmente
+    usuario = db.execute(
+        text("SELECT username, rol FROM usuarios WHERE username = :u AND password = :p"), 
+        {"u": req.username.lower(), "p": req.password}
+    ).fetchone()
+    
+    if usuario:
+        return {"username": usuario[0], "rol": usuario[1]}
+        
+    # Salva-vidas para usuarios viejos
     if req.username.lower() in ["admin", "taller"]:
-        rol_asignado = "Admin" if req.username.lower() == "admin" else "Taller"
-        return {"username": req.username.capitalize(), "rol": rol_asignado}
+        return {"username": req.username.capitalize(), "rol": "Admin" if req.username.lower() == "admin" else "Taller"}
         
     raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
 @app.get("/usuarios/")
 def leer_usuarios(db: Session = Depends(get_db)):
-    try:
-        Modelo = get_user_model()
-        if not Modelo: return []
-        usuarios = db.query(Modelo).all()
-        return [{"id": u.id, "username": u.username, "rol": getattr(u, 'rol', 'Taller')} for u in usuarios]
-    except: return []
+    rows = db.execute(text("SELECT id, username, rol FROM usuarios")).fetchall()
+    return [{"id": r[0], "username": r[1], "rol": r[2]} for r in rows]
 
 @app.post("/usuarios/")
 def crear_usuario(user: UsuarioCreate, db: Session = Depends(get_db)):
     try:
-        Modelo = get_user_model()
-        nuevo = Modelo(username=user.username, password=user.password)
-        if hasattr(nuevo, 'rol'): nuevo.rol = user.rol
-        db.add(nuevo)
+        db.execute(
+            text("INSERT INTO usuarios (username, password, rol) VALUES (:u, :p, :r)"), 
+            {"u": user.username.lower(), "p": user.password, "r": user.rol}
+        )
         db.commit()
         return {"msg": "Usuario creado"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Error al guardar en BD")
+    except:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
 
 @app.put("/usuarios/{id}")
 def editar_usuario(id: int, user: UsuarioUpdate, db: Session = Depends(get_db)):
-    Modelo = get_user_model()
-    db_user = db.query(Modelo).filter(Modelo.id == id).first()
-    if db_user:
-        if user.password: db_user.password = user.password
-        if user.rol and hasattr(db_user, 'rol'): db_user.rol = user.rol
-        db.commit()
+    if user.password:
+        db.execute(text("UPDATE usuarios SET password = :p WHERE id = :id"), {"p": user.password, "id": id})
+    if user.rol:
+        db.execute(text("UPDATE usuarios SET rol = :r WHERE id = :id"), {"r": user.rol, "id": id})
+    db.commit()
     return {"msg": "Actualizado"}
 
 @app.delete("/usuarios/{id}")
 def borrar_usuario(id: int, db: Session = Depends(get_db)):
-    Modelo = get_user_model()
-    db.query(Modelo).filter(Modelo.id == id).delete()
+    db.execute(text("DELETE FROM usuarios WHERE id = :id"), {"id": id})
     db.commit()
     return {"msg": "Borrado"}
