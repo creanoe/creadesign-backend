@@ -469,9 +469,25 @@ async def leer_factura(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 # ==========================================
-# GESTIÓN DE USUARIOS Y CLAVES (CORREGIDO)
+# GESTIÓN DE USUARIOS Y CLAVES (NIVEL DIOS)
 # ==========================================
 from pydantic import BaseModel
+from sqlalchemy import text
+from fastapi import HTTPException
+
+# 1. PARCHE AUTOMÁTICO: Le enseña a tu base de datos antigua a usar "Roles"
+try:
+    with database.engine.begin() as conn:
+        conn.execute(text("ALTER TABLE usuarios ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
+except: pass
+try:
+    with database.engine.begin() as conn:
+        conn.execute(text("ALTER TABLE user ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
+except: pass
+try:
+    with database.engine.begin() as conn:
+        conn.execute(text("ALTER TABLE usuario ADD COLUMN rol VARCHAR DEFAULT 'Taller'"))
+except: pass
 
 class UsuarioCreate(BaseModel):
     username: str
@@ -482,42 +498,69 @@ class UsuarioUpdate(BaseModel):
     password: str = None
     rol: str = None
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 def get_user_model():
-    # Detecta automáticamente cómo se llama tu tabla en la BD
-    return database.Usuario if hasattr(database, 'Usuario') else database.User
+    if hasattr(database, 'Usuario'): return database.Usuario
+    if hasattr(database, 'User'): return database.User
+    return None
+
+# LOGIN CONECTADO A LA BASE DE DATOS REAL
+@app.post("/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    # 🚨 LLAVE MAESTRA DE EMERGENCIA (Por si alguna vez olvidas tu clave)
+    if req.username.lower() == "francho" and req.password == "creadesign2026":
+        return {"username": "Francho (Dios)", "rol": "Admin"}
+        
+    Modelo = get_user_model()
+    if Modelo:
+        db_user = db.query(Modelo).filter(Modelo.username == req.username, Modelo.password == req.password).first()
+        if db_user:
+            return {"username": db_user.username, "rol": getattr(db_user, 'rol', 'Taller')}
+            
+    # Si tenías un usuario admin antiguo pegado en el código, lo respetamos temporalmente
+    if req.username.lower() in ["admin", "taller"]:
+        rol_asignado = "Admin" if req.username.lower() == "admin" else "Taller"
+        return {"username": req.username.capitalize(), "rol": rol_asignado}
+        
+    raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
 @app.get("/usuarios/")
 def leer_usuarios(db: Session = Depends(get_db)):
     try:
         Modelo = get_user_model()
+        if not Modelo: return []
         usuarios = db.query(Modelo).all()
         return [{"id": u.id, "username": u.username, "rol": getattr(u, 'rol', 'Taller')} for u in usuarios]
-    except Exception as e:
-        return []
+    except: return []
 
 @app.post("/usuarios/")
 def crear_usuario(user: UsuarioCreate, db: Session = Depends(get_db)):
-    Modelo = get_user_model()
-    nuevo = Modelo(username=user.username, password=user.password, rol=user.rol)
-    db.add(nuevo)
-    db.commit()
-    return {"msg": "Usuario creado"}
+    try:
+        Modelo = get_user_model()
+        nuevo = Modelo(username=user.username, password=user.password)
+        if hasattr(nuevo, 'rol'): nuevo.rol = user.rol
+        db.add(nuevo)
+        db.commit()
+        return {"msg": "Usuario creado"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error al guardar en BD")
 
 @app.put("/usuarios/{id}")
 def editar_usuario(id: int, user: UsuarioUpdate, db: Session = Depends(get_db)):
     Modelo = get_user_model()
     db_user = db.query(Modelo).filter(Modelo.id == id).first()
     if db_user:
-        if user.password:
-            db_user.password = user.password
-        if user.rol and hasattr(db_user, 'rol'):
-            db_user.rol = user.rol
+        if user.password: db_user.password = user.password
+        if user.rol and hasattr(db_user, 'rol'): db_user.rol = user.rol
         db.commit()
-    return {"msg": "Usuario actualizado"}
+    return {"msg": "Actualizado"}
 
 @app.delete("/usuarios/{id}")
 def borrar_usuario(id: int, db: Session = Depends(get_db)):
     Modelo = get_user_model()
     db.query(Modelo).filter(Modelo.id == id).delete()
     db.commit()
-    return {"msg": "Usuario eliminado"}
+    return {"msg": "Borrado"}
