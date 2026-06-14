@@ -180,13 +180,6 @@ def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Sessi
     db.refresh(db_mov)
     return db_mov
 
-@app.post("/login")
-def login(req: schemas.LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(database.Usuario).filter(database.Usuario.username == req.username).first()
-    if not user or user.password != req.password:
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    return {"username": user.username, "rol": user.rol}
-
 @app.delete("/cotizaciones/{cotizacion_id}")
 def delete_cotizacion(cotizacion_id: int, db: Session = Depends(get_db)):
     # Buscamos la cotización en la base de datos
