@@ -468,3 +468,45 @@ async def leer_factura(file: UploadFile = File(...)):
         return {"proveedor": proveedor, "total": total_factura, "items": items_detectados}
     except Exception as e:
         return {"error": str(e)}
+# ==========================================
+# GESTIÓN DE USUARIOS Y CLAVES (NUEVO)
+# ==========================================
+from pydantic import BaseModel
+
+class UsuarioCreate(BaseModel):
+    username: str
+    password: str
+    rol: str
+
+class UsuarioUpdate(BaseModel):
+    password: str = None
+    rol: str = None
+
+@app.get("/usuarios/")
+def leer_usuarios(db: Session = Depends(get_db)):
+    usuarios = db.query(database.Usuario).all()
+    return [{"id": u.id, "username": u.username, "rol": u.rol} for u in usuarios]
+
+@app.post("/usuarios/")
+def crear_usuario(user: UsuarioCreate, db: Session = Depends(get_db)):
+    nuevo = database.Usuario(username=user.username, password=user.password, rol=user.rol)
+    db.add(nuevo)
+    db.commit()
+    return {"msg": "Usuario creado"}
+
+@app.put("/usuarios/{id}")
+def editar_usuario(id: int, user: UsuarioUpdate, db: Session = Depends(get_db)):
+    db_user = db.query(database.Usuario).filter(database.Usuario.id == id).first()
+    if db_user:
+        if user.password:
+            db_user.password = user.password
+        if user.rol:
+            db_user.rol = user.rol
+        db.commit()
+    return {"msg": "Usuario actualizado"}
+
+@app.delete("/usuarios/{id}")
+def borrar_usuario(id: int, db: Session = Depends(get_db)):
+    db.query(database.Usuario).filter(database.Usuario.id == id).delete()
+    db.commit()
+    return {"msg": "Usuario eliminado"}
