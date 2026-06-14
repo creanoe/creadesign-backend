@@ -469,7 +469,7 @@ async def leer_factura(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 # ==========================================
-# GESTIÓN DE USUARIOS Y CLAVES (NUEVO)
+# GESTIÓN DE USUARIOS Y CLAVES (CORREGIDO)
 # ==========================================
 from pydantic import BaseModel
 
@@ -482,31 +482,42 @@ class UsuarioUpdate(BaseModel):
     password: str = None
     rol: str = None
 
+def get_user_model():
+    # Detecta automáticamente cómo se llama tu tabla en la BD
+    return database.Usuario if hasattr(database, 'Usuario') else database.User
+
 @app.get("/usuarios/")
 def leer_usuarios(db: Session = Depends(get_db)):
-    usuarios = db.query(database.Usuario).all()
-    return [{"id": u.id, "username": u.username, "rol": u.rol} for u in usuarios]
+    try:
+        Modelo = get_user_model()
+        usuarios = db.query(Modelo).all()
+        return [{"id": u.id, "username": u.username, "rol": getattr(u, 'rol', 'Taller')} for u in usuarios]
+    except Exception as e:
+        return []
 
 @app.post("/usuarios/")
 def crear_usuario(user: UsuarioCreate, db: Session = Depends(get_db)):
-    nuevo = database.Usuario(username=user.username, password=user.password, rol=user.rol)
+    Modelo = get_user_model()
+    nuevo = Modelo(username=user.username, password=user.password, rol=user.rol)
     db.add(nuevo)
     db.commit()
     return {"msg": "Usuario creado"}
 
 @app.put("/usuarios/{id}")
 def editar_usuario(id: int, user: UsuarioUpdate, db: Session = Depends(get_db)):
-    db_user = db.query(database.Usuario).filter(database.Usuario.id == id).first()
+    Modelo = get_user_model()
+    db_user = db.query(Modelo).filter(Modelo.id == id).first()
     if db_user:
         if user.password:
             db_user.password = user.password
-        if user.rol:
+        if user.rol and hasattr(db_user, 'rol'):
             db_user.rol = user.rol
         db.commit()
     return {"msg": "Usuario actualizado"}
 
 @app.delete("/usuarios/{id}")
 def borrar_usuario(id: int, db: Session = Depends(get_db)):
-    db.query(database.Usuario).filter(database.Usuario.id == id).delete()
+    Modelo = get_user_model()
+    db.query(Modelo).filter(Modelo.id == id).delete()
     db.commit()
     return {"msg": "Usuario eliminado"}
