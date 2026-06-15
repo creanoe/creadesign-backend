@@ -1,53 +1,49 @@
 import csv
-import database
+import urllib.request
+import json
+import ssl
 
-# Abrimos la conexión a la base de datos
-db = database.SessionLocal()
+# La dirección de la nube de tu Cerebro
+API_URL = "https://creadesign-backend.onrender.com/clientes/"
+ARCHIVO_CSV = "lista de clientes.csv"
 
-print("Iniciando la importación masiva de clientes...")
+# Ignorar advertencias de SSL al enviar datos
+context = ssl._create_unverified_context()
+
+print("🚀 Conectando con la nube de CREAdesign...")
 
 try:
-    # Leemos el archivo indicando que el separador es el punto y coma (;)
-    with open('lista de clientes.csv', mode='r', encoding='utf-8') as file:
-        reader = csv.DictReader(file, delimiter=';')
+    # Intenta abrir el archivo. Si tu Excel usa punto y coma, cambia delimiter="," por delimiter=";"
+    with open(ARCHIVO_CSV, mode="r", encoding="utf-8") as file:
+        reader = csv.DictReader(file, delimiter=",")
         
-        clientes_agregados = 0
-        
+        agregados = 0
         for row in reader:
-            # Capturamos las columnas exactas de tu Excel
-            razon_social = row.get('Razón Social', '').strip()
-            rut = row.get('RUT', '').strip()
-            correo = row.get('Correo', '').strip()
-            telefono = row.get('Teléfono', '').strip()
-            direccion = row.get('Dirección', '').strip()
-            alias = row.get('Alias', '').strip()
-
-            # Limpiamos los "N/A" para que tu sistema se vea profesional y limpio
-            if correo == 'N/A': correo = ''
-            if telefono == 'N/A': telefono = ''
-            if direccion == 'N/A': direccion = ''
-            if alias == 'N/A': alias = ''
-
-            # Verificamos que el cliente no exista ya (buscando por RUT)
-            existe = db.query(database.Cliente).filter(database.Cliente.rut == rut).first()
+            # Capturamos los datos del CSV (si una columna no existe, queda en blanco)
+            cliente_data = {
+                "alias": row.get("Alias", ""),
+                "razon_social": row.get("Razon Social", ""),
+                "rut": row.get("RUT", ""),
+                "email": row.get("Email", ""),
+                "telefono": row.get("Telefono", ""),
+                "direccion": row.get("Direccion", "")
+            }
             
-            if not existe and razon_social:
-                nuevo_cliente = database.Cliente(
-                    razon_social=razon_social,
-                    rut=rut,
-                    email=correo,
-                    telefono=telefono,
-                    direccion=direccion,
-                    alias=alias  # <--- Aquí guardamos el Alias
-                )
-                db.add(nuevo_cliente)
-                clientes_agregados += 1
+            # Solo subir si hay Razón Social o RUT
+            if cliente_data["razon_social"] or cliente_data["rut"]:
+                print(f"Subiendo a: {cliente_data['razon_social']}...")
+                
+                # Convertir a JSON y enviar a la nube
+                data_codificada = json.dumps(cliente_data).encode('utf-8')
+                req = urllib.request.Request(API_URL, data=data_codificada, headers={'Content-Type': 'application/json'}, method='POST')
+                
+                try:
+                    urllib.request.urlopen(req, context=context)
+                    agregados += 1
+                except Exception as e:
+                    print(f"❌ Error al subir {cliente_data['razon_social']}: {e}")
 
-        # Guardamos todos los cambios de golpe
-        db.commit()
-        print(f"✅ ¡Éxito total! Se importaron {clientes_agregados} clientes a tu ERP CREAdesign.")
-
-except Exception as e:
-    print(f"❌ Ocurrió un error al leer el archivo: {e}")
-finally:
-    db.close()
+        print(f"🎉 ¡Proceso terminado! Se subieron {agregados} clientes a la base de datos oficial.")
+        
+except FileNotFoundError:
+    print("🚨 ERROR: No se encontró el archivo 'lista de clientes.csv'. Verifica que se llame exactamente así.")
