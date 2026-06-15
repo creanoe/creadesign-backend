@@ -5,7 +5,7 @@ from datetime import date
 
 # 🚨 REEMPLAZA ESTE TEXTO CON EL LINK EXACTO DE SUPABASE 🚨
 # Recuerda cambiar donde dice [YOUR-PASSWORD] por la contraseña que creaste en el paso 1
-DATABASE_URL = "postgresql://postgres:[YOUR-PASSWORD]@db.gnmwboatdirrnwzcrihu.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:[Nmn2026ayf.]@db.gnmwboatdirrnwzcrihu.supabase.co:5432/postgres"
 
 # El motor nuevo, listo para la nube (sin la configuración antigua de SQLite)
 engine = create_engine(DATABASE_URL)
