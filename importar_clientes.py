@@ -13,20 +13,21 @@ context = ssl._create_unverified_context()
 print("🚀 Conectando con la nube de CREAdesign...")
 
 try:
-    # Intenta abrir el archivo. Si tu Excel usa punto y coma, cambia delimiter="," por delimiter=";"
+    # Le decimos al robot que use UTF-8 para leer bien los tildes
     with open(ARCHIVO_CSV, mode="r", encoding="utf-8") as file:
-        reader = csv.DictReader(file, delimiter=",")
+        # Le decimos explícitamente que tu Excel usa punto y coma (;)
+        reader = csv.DictReader(file, delimiter=";")
         
         agregados = 0
         for row in reader:
-            # Capturamos los datos del CSV (si una columna no existe, queda en blanco)
+            # Ahora el robot busca los nombres EXACTOS que tienes en tu archivo
             cliente_data = {
                 "alias": row.get("Alias", ""),
-                "razon_social": row.get("Razon Social", ""),
+                "razon_social": row.get("Razón Social", ""),
                 "rut": row.get("RUT", ""),
-                "email": row.get("Email", ""),
-                "telefono": row.get("Telefono", ""),
-                "direccion": row.get("Direccion", "")
+                "email": row.get("Correo", ""),
+                "telefono": row.get("Teléfono", ""),
+                "direccion": row.get("Dirección", "")
             }
             
             # Solo subir si hay Razón Social o RUT
