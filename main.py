@@ -9,7 +9,7 @@ import pdfplumber
 import io
 import re
 
-# 1. CREAR BASE DE DATOS
+# 1. CREAR BASE DE DATOS (Ahora en Supabase)
 database.Base.metadata.create_all(bind=database.engine)
 
 # 2. INICIAR LA APP
@@ -24,26 +24,12 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# 4. CREACIÓN FORZADA DE TABLA USUARIOS (BLINDAJE TOTAL)
-try:
-    with database.engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username VARCHAR(50) UNIQUE,
-                password VARCHAR(50),
-                rol VARCHAR(20) DEFAULT 'Taller'
-            )
-        """))
-        conn.execute(text("ALTER TABLE usuarios ADD COLUMN rol VARCHAR(20) DEFAULT 'Taller'"))
-except:
-    pass # Si la columna ya existe, ignora el error y sigue
-
 def get_db():
     db = database.SessionLocal()
     try: yield db
     finally: db.close()
 
+# ... de aquí para abajo (BODEGA, CLIENTES, etc.) sigue todo exactamente igual ...
 # --- BODEGA ---
 @app.post("/materiales/", response_model=schemas.MaterialResponse)
 def crear_material(material: schemas.MaterialCreate, db: Session = Depends(get_db)):
