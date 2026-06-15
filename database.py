@@ -2,15 +2,16 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Fore
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import date
+import os
 
-# 🚨 REEMPLAZA ESTE TEXTO CON EL LINK EXACTO DE SUPABASE 🚨
-# Recuerda cambiar donde dice [YOUR-PASSWORD] por la contraseña que creaste en el paso 1
-DATABASE_URL = "postgresql://postgres:Nmn2026ayf.@db.gnmwboatdirrnwzcrihu.supabase.co:5432/postgres"
+# Ahora el sistema buscará la clave secreta directamente en Render
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./creadesign_erp.db")
 
-# El motor nuevo, listo para la nube (sin la configuración antigua de SQLite)
+# El motor nuevo, listo para la nube
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
 
 # ... de aquí para abajo, tus clases Cliente, Material, etc. siguen igual ...
 class Material(Base):
