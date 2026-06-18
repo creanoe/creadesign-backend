@@ -1,13 +1,27 @@
+import os
+import json
+import io
+import re
+import pdfplumber
+import google.generativeai as genai
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
 from typing import List
+from PIL import Image
 import database, schemas
-import pdfplumber
-import io
-import re
+
+# 🔥 0. CONFIGURAR LA INTELIGENCIA ARTIFICIAL (GEMINI)
+# Asegúrate de haber agregado la variable GEMINI_API_KEY en tu entorno de Render
+gemini_key = os.environ.get("GEMINI_API_KEY")
+if gemini_key:
+    genai.configure(api_key=gemini_key)
+    modelo_vision = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    modelo_vision = None
+    print("⚠️ ADVERTENCIA: No se encontró la GEMINI_API_KEY en el servidor. El escáner de boletas no funcionará.")
 
 # 1. CREAR BASE DE DATOS (Ahora en Supabase)
 database.Base.metadata.create_all(bind=database.engine)
@@ -29,7 +43,6 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# ... de aquí para abajo (BODEGA, CLIENTES, etc.) sigue todo exactamente igual ...
 # --- BODEGA ---
 @app.post("/materiales/", response_model=schemas.MaterialResponse)
 def crear_material(material: schemas.MaterialCreate, db: Session = Depends(get_db)):
@@ -405,6 +418,42 @@ async def leer_factura(file: UploadFile = File(...)):
         return {"proveedor": proveedor, "total": total_factura, "items": items_detectados}
     except Exception as e:
         return {"error": str(e)}
+
+# 🔥 NUEVO: ESCÁNER DE BOLETAS CON CÁMARA USANDO GEMINI
+@app.post("/upload-boleta/")
+async def upload_boleta(file: UploadFile = File(...)):
+    if not modelo_vision:
+        raise HTTPException(status_code=500, detail="Gemini API Key no configurada en el servidor.")
+        
+    try:
+        image_data = await file.read()
+        img = Image.open(io.BytesIO(image_data))
+
+        prompt = """
+        Eres el asistente contable de CREAdesign. 
+        Analiza esta boleta, comprobante de pago o factura de compra.
+        Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura. No incluyas markdown ni comillas adicionales:
+        {
+            "proveedor": "Nombre del negocio o comercio",
+            "fecha": "Fecha de la compra en formato YYYY-MM-DD",
+            "total": Monto total pagado (solo números, sin símbolos ni puntos),
+            "categoria": "Elige solo una de estas: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Servicios Básicos, Combustible y Peajes, Colaciones en Terreno, Otros Gastos"
+        }
+        """
+
+        respuesta = modelo_vision.generate_content([prompt, img])
+        texto_limpio = respuesta.text.replace("```json", "").replace("```", "").strip()
+        
+        datos = json.loads(texto_limpio)
+        return datos
+
+    except json.JSONDecodeError:
+        print("La IA no devolvió un JSON válido:", respuesta.text)
+        raise HTTPException(status_code=500, detail="Error al decodificar la lectura de la boleta.")
+    except Exception as e:
+        print(f"Error interno al procesar la boleta: {str(e)}")
+        raise HTTPException(status_code=500, detail="No se pudo procesar la imagen de la boleta.")
+
 
 # ==========================================
 # GESTIÓN DE USUARIOS (BLINDAJE TOTAL SQL)
