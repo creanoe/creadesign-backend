@@ -523,3 +523,46 @@ def borrar_usuario(id: int, db: Session = Depends(get_db)):
     db.execute(text("DELETE FROM usuarios WHERE id = :id"), {"id": id})
     db.commit()
     return {"msg": "Borrado"}
+    # ==========================================
+# GESTIÓN DE APUNTES Y PENDIENTES (SINCRO NUBE)
+# ==========================================
+class TareaCreate(BaseModel):
+    texto: str
+    fecha: str = None
+
+@app.get("/tareas/")
+def leer_tareas(db: Session = Depends(get_db)):
+    # Escudo: Crea la tabla automáticamente en Supabase si no existe
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS tareas (
+            id SERIAL PRIMARY KEY,
+            texto TEXT NOT NULL,
+            fecha TEXT,
+            lista BOOLEAN DEFAULT FALSE
+        )
+    """))
+    db.commit()
+    
+    rows = db.execute(text("SELECT id, texto, fecha, lista FROM tareas ORDER BY id DESC")).fetchall()
+    return [{"id": r[0], "texto": r[1], "fecha": r[2], "lista": r[3]} for r in rows]
+
+@app.post("/tareas/")
+def crear_tarea(tarea: TareaCreate, db: Session = Depends(get_db)):
+    db.execute(
+        text("INSERT INTO tareas (texto, fecha, lista) VALUES (:t, :f, FALSE)"),
+        {"t": tarea.texto, "f": tarea.fecha}
+    )
+    db.commit()
+    return {"msg": "Tarea guardada en la nube"}
+
+@app.put("/tareas/{id}")
+def toggle_tarea(id: int, db: Session = Depends(get_db)):
+    db.execute(text("UPDATE tareas SET lista = NOT lista WHERE id = :id"), {"id": id})
+    db.commit()
+    return {"msg": "Estado de tarea actualizado"}
+
+@app.delete("/tareas/{id}")
+def borrar_tarea(id: int, db: Session = Depends(get_db)):
+    db.execute(text("DELETE FROM tareas WHERE id = :id"), {"id": id})
+    db.commit()
+    return {"msg": "Tarea eliminada"}
