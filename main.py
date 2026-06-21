@@ -216,26 +216,27 @@ async def upload_cartola(file: UploadFile = File(...)):
                 texto_completo += page.extract_text() + "\n"
         
         prompt = f"""
-        Eres un auditor financiero experto. Tu tarea es extraer absolutamente TODAS las transacciones de este estado de cuenta bancario, SIN EXCEPCIÓN y SIN RESUMIR. 
-        Debes procesar fila por fila desde el primer movimiento hasta el último.
-
+        Eres un auditor financiero experto. Analiza el siguiente estado de cuenta bancario chileno línea por línea.
         Reglas estrictas:
-        1. EXTRACCIÓN TOTAL: Por cada línea de dinero que entra o sale en el texto, debe haber un elemento en tu respuesta JSON. ¡Prohibido omitir transacciones!
+        1. NO OMITAS NINGUNA TRANSACCIÓN. Extrae absolutamente todos los movimientos de la lista.
         2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile, BCI).
-        3. Clasifica estrictamente en "Ingreso" o "Gasto".
-        4. REGLA DEL CANDADO (locked): Si la transacción es un cobro interno del banco (comisiones, mantención, línea de crédito, intereses, sobregiro, impuestos, cargo por PAC/PAT), establece "locked": true. Para cualquier otro movimiento normal (compras, transferencias, pagos a terceros), establece "locked": false.
-        5. Categorías para Gastos: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Bencina, Fletes, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Gasto Privado, Regalo, Otros Gastos. Si dudas, usa "Otros Gastos".
+        3. Diferencia estrictamente los Gastos de los Ingresos.
+        4. REGLA DEL CANDADO (locked): Si la línea corresponde a un cobro directo o interno del banco (comisiones, mantención, intereses, uso de sobregiro, castigos), establece "locked": true. Para cualquier otra transacción, "locked": false.
+        5. IMPORTANTE - FECHA: Calcula y devuelve la fecha en formato exacto "YYYY-MM-DD".
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura (asegúrate de incluir la matriz completa con todos los decenas de movimientos detectados):
+        Categorías de INGRESO permitidas: Impresión y Producción Gráfica, Corte y Grabado (CNC/Láser), Diseño y Branding, Instalación y Montaje, Pago de Factura, Préstamo, Abono Trabajo, Deuda Pendiente, IVA Pendiente, Otros Ingresos.
+        Categorías de GASTO permitidas: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Bencina, Flete, Gasto Privado, Regalo, Pago de Préstamo, Pago Pendiente, Pago Tarjeta de Crédito (Personal), Pago Tarjeta de Crédito (Empresa), Pago de IVA, Otros Gastos.
+        
+        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
         {{
           "banco_detectado": "Nombre del Banco",
           "sugerencias": [
             {{
-              "fecha": "DD-MM",
-              "concepto": "Descripción exacta de la transacción",
+              "fecha": "YYYY-MM-DD",
+              "concepto": "Descripción completa de la transacción",
               "monto": 15000,
               "tipo": "Ingreso" o "Gasto",
-              "categoria": "Categoría correspondiente",
+              "categoria": "Categoría exacta del listado",
               "locked": true o false
             }}
           ]
