@@ -12,28 +12,29 @@ from pydantic import BaseModel
 from typing import List
 from PIL import Image
 import database, schemas
+
 # 🔥 0. CONFIGURAR LA INTELIGENCIA ARTIFICIAL (GEMINI)
 gemini_key = os.environ.get("GEMINI_API_KEY")
+
 if gemini_key:
-    # Quitar espacios en blanco por si se copiaron por error
-gemini_key = gemini_key.strip()
-genai.configure(api_key=gemini_key)
+    gemini_key = gemini_key.strip()
+    genai.configure(api_key=gemini_key)
     
-    # BUSCADOR AUTOMÁTICO DEL MODELO CORRECTO PARA TU CUENTA
-modelo_exacto = 'gemini-1.5-flash' # Plan Z de emergencia
-try:
-for m in genai.list_models():
-if 'generateContent' in m.supported_generation_methods and 'flash' in m.name:
-modelo_exacto = m.name
-break
-modelo_vision = genai.GenerativeModel(modelo_exacto)
-print(f"✅ IA CONECTADA USANDO EL MODELO EXACTO: {modelo_exacto}")
-except Exception as e:
-print(f"⚠️ Error al conectar con Google: {e}")
-modelo_vision = None
+    modelo_exacto = 'gemini-1.5-flash'
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods and 'flash' in m.name:
+                modelo_exacto = m.name
+                break
+        modelo_vision = genai.GenerativeModel(modelo_exacto)
+        print(f"✅ IA CONECTADA USANDO EL MODELO EXACTO: {modelo_exacto}")
+    except Exception as e:
+        print(f"⚠️ Error al conectar con Google: {e}")
+        modelo_vision = None
 else:
     modelo_vision = None
     print("⚠️ ADVERTENCIA: No se encontró la GEMINI_API_KEY en el servidor.")
+
 # 1. CREAR BASE DE DATOS (Ahora en Supabase)
 database.Base.metadata.create_all(bind=database.engine)
 
