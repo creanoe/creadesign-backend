@@ -224,7 +224,7 @@ async def upload_cartola(file: UploadFile = File(...)):
         2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile, BCI).
         3. Clasifica estrictamente en "Ingreso" o "Gasto".
         4. REGLA DEL CANDADO (locked): Si la transacción es un cobro interno del banco (comisiones, mantención, línea de crédito, intereses, sobregiro, impuestos, cargo por PAC/PAT), establece "locked": true. Para cualquier otro movimiento normal (compras, transferencias, pagos a terceros), establece "locked": false.
-        5. Categorías para Gastos: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Gasto Privado, Regalo, Otros Gastos. Si dudas, usa "Otros Gastos".
+        5. Categorías para Gastos: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Bencina, Fletes, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Gasto Privado, Regalo, Otros Gastos. Si dudas, usa "Otros Gastos".
         
         Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura (asegúrate de incluir la matriz completa con todos los decenas de movimientos detectados):
         {{
