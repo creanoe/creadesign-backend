@@ -205,86 +205,51 @@ def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Sessi
 
 # --- LECTORES INTELIGENTES ---
 @app.post("/upload-cartola/")
-async def leer_cartola(file: UploadFile = File(...)):
+async def upload_cartola(file: UploadFile = File(...)):
+    if not modelo_vision:
+        raise HTTPException(status_code=500, detail="Gemini no está configurado.")
     try:
-        content = await file.read()
-        pdf_file = io.BytesIO(content)
-        sugerencias = []
+        pdf_bytes = await file.read()
+        texto_pdf = ""
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                ext = page.extract_text()
+                if ext:
+                    texto_pdf += ext + "\n"
+
+        prompt = """
+        Eres un auditor financiero experto. Analiza el siguiente texto extraído de una cartola bancaria chilena.
+        Cada banco tiene su formato. Santander suele usar signos negativos (ej: $-150.000) para gastos y positivos para ingresos. Otros usan columnas.
         
-        with pdfplumber.open(pdf_file) as pdf:
-            texto_completo = ""
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t: texto_completo += t.upper() + " "
-            
-            banco_detectado = "BancoEstado"
-            if "SANTANDER" in texto_completo or "WWW.SANTANDER.CL" in texto_completo or "BANSANDER" in texto_completo:
-                banco_detectado = "Santander"
-
-            for page in pdf.pages:
-                texto = page.extract_text()
-                if not texto: continue
-                
-                lineas = texto.split('\n')
-                for linea in lineas:
-                    linea_upper = linea.upper()
-                    categoria = "Otros Gastos"
-                    tipo = "Gasto"
-                    monto = 0
-                    es_cobro_banco = False
-                    
-                    if any(x in linea_upper for x in ["FECHA", "CARGO", "ABONO", "SALDO"]): continue
-                        
-                    montos = re.findall(r'\$\s*-?\s*([\d\.]+)', linea_upper)
-                    
-                    if len(montos) >= 3 and any(x in linea_upper for x in ["TEF", "COMPRA", "GIRO", "COMISION", "IMPUESTO"]):
-                        cargo = int(montos[-3].replace('.', ''))
-                        abono = int(montos[-2].replace('.', ''))
-                        if cargo > 0:
-                            tipo, monto = "Gasto", cargo
-                        elif abono > 0:
-                            tipo, categoria, monto = "Ingreso", "Otros Ingresos", abono
-                            
-                    elif len(montos) > 0:
-                        if "$-" in linea_upper:
-                            tipo, monto = "Gasto", int(montos[0].replace('.', ''))
-                        elif any(x in linea_upper for x in ["TRANSF DE", "ABONO"]):
-                            tipo, categoria, monto = "Ingreso", "Otros Ingresos", int(montos[0].replace('.', ''))
-                        elif any(x in linea_upper for x in ["COMPRA", "TRANSF A", "INTERES", "COMISION", "IMPUESTO", "MANTENCION", "SOBREGIRO"]):
-                            tipo, monto = "Gasto", int(montos[0].replace('.', ''))
-
-                    if monto == 0: continue 
-
-                    if any(x in linea_upper for x in ["COMISION", "INTERES", "MANTENCION", "IMPUESTO", "SOBREGIRO"]):
-                        categoria, es_cobro_banco, linea = "Otros Gastos", True, f"[Cobro Banco] {linea}" 
-
-                    if not es_cobro_banco:
-                        if any(x in linea_upper for x in ["COPEC", "SHELL", "PETROBRAS", "ARAMCO"]): categoria = "Combustible y Peajes"
-                        elif any(x in linea_upper for x in ["PREVIRED", "IMPOSICIONES"]): categoria = "Sueldos e Imposiciones"
-                        elif any(x in linea_upper for x in ["STARKEN", "CHILEXPRESS", "REPARTIDOR"]): categoria = "Transporte y Encomiendas"
-                        elif any(x in linea_upper for x in ["SODIMAC", "EASY", "IMPERIAL", "FERREHOGAR"]): categoria = "Materiales y Sustratos"
-                        elif any(x in linea_upper for x in ["RESTAURANT", "JUMBO", "STA ISABEL", "CARNES", "FINA ESTAMPA", "TOTTUS"]): categoria = "Colaciones en Terreno"
-                        elif "ARRIENDO" in linea_upper and "MAQUINARIA" in linea_upper: categoria = "Arriendo de Maquinarias"
-
-                    concepto = linea
-                    concepto = re.sub(r'^\d{2}/\d{2}/\d{4}', '', concepto) 
-                    concepto = re.sub(r'^\d{2}/\d{2}', '', concepto) 
-                    concepto = re.sub(r'STGO\.PRINCIPAL', '', concepto, flags=re.IGNORECASE) 
-                    concepto = re.sub(r'\$\s*-?\s*[\d\.]+', '', concepto) 
-                    concepto = re.sub(r'\b\d{6,}\b', '', concepto) 
-                    
-                    sugerencias.append({
-                        "concepto": concepto[:60].strip(),
-                        "monto": monto,
-                        "categoria": categoria,
-                        "tipo": tipo,
-                        "banco_detectado": banco_detectado,
-                        "locked": es_cobro_banco
-                    })
-                            
-        return {"sugerencias": sugerencias}
+        Reglas estrictas:
+        1. Identifica el nombre del banco leyendo el encabezado (ej: "Santander", "BancoEstado", "Banco de Chile").
+        2. Extrae TODAS las transacciones sin omitir absolutamente ninguna.
+        3. Determina matemáticamente si es un "Ingreso" (plata que entra, depósitos, transferencias recibidas, montos positivos) o un "Gasto" (plata que sale, compras, transferencias enviadas, montos negativos).
+        4. Si el monto tiene un signo negativo en el PDF, es un "Gasto", pero en tu respuesta JSON el 'monto' numérico debe ir SIEMPRE en positivo.
+        5. Extrae la fecha exacta de cada transacción en formato YYYY-MM-DD.
+        6. Asigna una categoría contable lógica.
+        
+        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta, sin markdown ni comillas extra:
+        {
+          "banco_detectado": "Nombre del Banco",
+          "sugerencias": [
+            {
+              "fecha": "YYYY-MM-DD",
+              "concepto": "Descripción limpia",
+              "monto": 150000,
+              "tipo": "Ingreso",
+              "categoria": "Otros Ingresos"
+            }
+          ]
+        }
+        """
+        respuesta = modelo_vision.generate_content([prompt, texto_pdf])
+        texto_limpio = respuesta.text.replace("```json", "").replace("```", "").strip()
+        datos = json.loads(texto_limpio)
+        return datos
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error procesando cartola: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/upload-factura/")
 async def leer_factura(file: UploadFile = File(...)):
