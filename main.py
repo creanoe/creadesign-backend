@@ -216,24 +216,26 @@ async def upload_cartola(file: UploadFile = File(...)):
                 texto_completo += page.extract_text() + "\n"
         
         prompt = f"""
-        Eres un auditor financiero experto. Analiza el siguiente estado de cuenta bancario chileno línea por línea.
+        Eres un auditor financiero experto. Tu tarea es extraer absolutamente TODAS las transacciones de este estado de cuenta bancario, SIN EXCEPCIÓN y SIN RESUMIR. 
+        Debes procesar fila por fila desde el primer movimiento hasta el último.
+
         Reglas estrictas:
-        1. NO OMITAS NINGUNA TRANSACCIÓN. Extrae absolutamente todos los movimientos de la lista, procesando el texto de principio a fin.
-        2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile, BCI, Scotiabank).
-        3. Diferencia estrictamente los Gastos (Cargos/Egresos/Compras) de los Ingresos (Abonos/Depósitos/Transferencias recibidas).
-        4. Devuelve el monto siempre como número entero positivo.
-        5. REGLA DEL CANDADO (locked): Si la línea corresponde a un cobro directo o interno del banco (comisiones, mantención, intereses de línea de crédito, uso de sobregiro, o castigos por pago fuera de tiempo), debes establecer "locked": true. Para cualquier otra transacción normal de la empresa (compras, transferencias a terceros, abonos), establece "locked": false.
+        1. EXTRACCIÓN TOTAL: Por cada línea de dinero que entra o sale en el texto, debe haber un elemento en tu respuesta JSON. ¡Prohibido omitir transacciones!
+        2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile, BCI).
+        3. Clasifica estrictamente en "Ingreso" o "Gasto".
+        4. REGLA DEL CANDADO (locked): Si la transacción es un cobro interno del banco (comisiones, mantención, línea de crédito, intereses, sobregiro, impuestos, cargo por PAC/PAT), establece "locked": true. Para cualquier otro movimiento normal (compras, transferencias, pagos a terceros), establece "locked": false.
+        5. Categorías para Gastos: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Gasto Privado, Regalo, Otros Gastos. Si dudas, usa "Otros Gastos".
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
+        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura (asegúrate de incluir la matriz completa con todos los decenas de movimientos detectados):
         {{
           "banco_detectado": "Nombre del Banco",
           "sugerencias": [
             {{
               "fecha": "DD-MM",
-              "concepto": "Descripción completa de la transacción",
+              "concepto": "Descripción exacta de la transacción",
               "monto": 15000,
-              "tipo": "Ingreso" (si es depósito/abono) o "Gasto" (si es cargo/retiro),
-              "categoria": "Otros Gastos" (si es Gasto) o "Otros Ingresos" (si es Ingreso),
+              "tipo": "Ingreso" o "Gasto",
+              "categoria": "Categoría correspondiente",
               "locked": true o false
             }}
           ]
