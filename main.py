@@ -206,50 +206,51 @@ def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Sessi
 # --- LECTORES INTELIGENTES ---
 @app.post("/upload-cartola/")
 async def upload_cartola(file: UploadFile = File(...)):
-    if not modelo_vision:
-        raise HTTPException(status_code=500, detail="Gemini no está configurado.")
     try:
         pdf_bytes = await file.read()
-        texto_pdf = ""
+        import pdfplumber
+        import io
+        texto_completo = ""
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                ext = page.extract_text()
-                if ext:
-                    texto_pdf += ext + "\n"
-
-        prompt = """
-        Eres un auditor financiero experto. Analiza el siguiente texto extraído de una cartola bancaria chilena.
-        Cada banco tiene su formato. Santander suele usar signos negativos (ej: $-150.000) para gastos y positivos para ingresos. Otros usan columnas.
+                texto_completo += page.extract_text() + "\n"
         
+        prompt = f"""
+        Eres un auditor financiero experto. Analiza este estado de cuenta bancario chileno línea por línea.
         Reglas estrictas:
-        1. Identifica el nombre del banco leyendo el encabezado (ej: "Santander", "BancoEstado", "Banco de Chile").
-        2. Extrae TODAS las transacciones sin omitir absolutamente ninguna.
-        3. Determina matemáticamente si es un "Ingreso" (plata que entra, depósitos, transferencias recibidas, montos positivos) o un "Gasto" (plata que sale, compras, transferencias enviadas, montos negativos).
-        4. Si el monto tiene un signo negativo en el PDF, es un "Gasto", pero en tu respuesta JSON el 'monto' numérico debe ir SIEMPRE en positivo.
-        5. Extrae la fecha exacta de cada transacción en formato YYYY-MM-DD.
-        6. Asigna una categoría contable lógica.
+        1. NO OMITAS NINGUNA TRANSACCIÓN.
+        2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile).
+        3. Diferencia estrictamente los Gastos de los Ingresos.
+        4. EL REQUISITO MÁS IMPORTANTE: Si la transacción es un cobro directo del banco (comisiones, mantención, línea de crédito, intereses, sobregiro, impuestos), debes establecer "locked": true. Para el resto de movimientos normales, usa "locked": false.
+        5. Categorías permitidas para Gastos: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Gasto Privado, Regalo, Otros Gastos.
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta, sin markdown ni comillas extra:
-        {
+        Devuelve ÚNICAMENTE un objeto JSON con esta estructura:
+        {{
           "banco_detectado": "Nombre del Banco",
           "sugerencias": [
-            {
-              "fecha": "YYYY-MM-DD",
-              "concepto": "Descripción limpia",
-              "monto": 150000,
-              "tipo": "Ingreso",
-              "categoria": "Otros Ingresos"
-            }
+            {{
+              "fecha": "DD-MM",
+              "concepto": "Descripción de la transacción",
+              "monto": 15000,
+              "tipo": "Ingreso" o "Gasto",
+              "categoria": "Categoría correspondiente",
+              "locked": true o false
+            }}
           ]
-        }
+        }}
+
+        Texto de la cartola:
+        {texto_completo}
         """
-        respuesta = modelo_vision.generate_content([prompt, texto_pdf])
-        texto_limpio = respuesta.text.replace("```json", "").replace("```", "").strip()
-        datos = json.loads(texto_limpio)
-        return datos
+        
+        if modelo_vision is None:
+            return {"error": "La IA no está configurada (Falta GEMINI_API_KEY)"}
+            
+        respuesta = modelo_vision.generate_content(prompt)
+        texto_json = respuesta.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(texto_json)
     except Exception as e:
-        print(f"Error procesando cartola: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
     
 @app.post("/upload-factura/")
 async def leer_factura(file: UploadFile = File(...)):
