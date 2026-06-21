@@ -20,8 +20,9 @@ if gemini_key:
     gemini_key = gemini_key.strip()
     genai.configure(api_key=gemini_key)
     
-    modelo_exacto = 'gemini-1.5-flash'
+    modelo_exacto = 'gemini-1.5-flash-latest'
     try:
+        # Esto busca automáticamente el nombre exacto de la IA en tu cuenta
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods and 'flash' in m.name:
                 modelo_exacto = m.name
