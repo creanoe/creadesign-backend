@@ -18,7 +18,7 @@ import database, schemas
 gemini_key = os.environ.get("GEMINI_API_KEY")
 if gemini_key:
     genai.configure(api_key=gemini_key)
-    modelo_vision = genai.GenerativeModel('gemini-1.5-flash')
+    modelo_vision = genai.GenerativeModel('gemini-1.5-flash-latest')
 else:
     modelo_vision = None
     print("⚠️ ADVERTENCIA: No se encontró la GEMINI_API_KEY en el servidor. El escáner de boletas no funcionará.")
