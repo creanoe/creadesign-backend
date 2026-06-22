@@ -216,27 +216,29 @@ async def upload_cartola(file: UploadFile = File(...)):
                 texto_completo += page.extract_text() + "\n"
         
         prompt = f"""
-        Eres un auditor financiero experto. Analiza el siguiente estado de cuenta bancario chileno línea por línea.
-        Reglas estrictas:
-        1. NO OMITAS NINGUNA TRANSACCIÓN. Extrae absolutamente todos los movimientos de la lista.
+        Eres un auditor financiero experto. Analiza el siguiente estado de cuenta bancario chileno.
+        
+        REGLAS ESTRICTAS:
+        1. NO OMITAS NINGUNA TRANSACCIÓN. Extrae todos los movimientos de principio a fin.
         2. Identifica el nombre del banco (ej: Santander, BancoEstado, Banco de Chile, BCI).
-        3. Diferencia estrictamente los Gastos de los Ingresos.
-        4. REGLA DEL CANDADO (locked): Si la línea corresponde a un cobro directo o interno del banco (comisiones, mantención, intereses, uso de sobregiro, castigos), establece "locked": true. Para cualquier otra transacción, "locked": false.
-        5. IMPORTANTE - FECHA: Calcula y devuelve la fecha en formato exacto "YYYY-MM-DD".
+        3. Diferencia Gastos (Cargos/Egresos) de Ingresos (Abonos/Depósitos).
+        4. Monto: Siempre como número entero positivo.
+        5. Fecha: Devuelve SIEMPRE en formato "YYYY-MM-DD" (asume el año actual si el texto solo dice día y mes).
+        6. "locked": true SOLO SI es un cobro interno del banco (comisiones, mantención, intereses, sobregiro, impuestos). Para el resto de movimientos normales, usa "locked": false.
         
         Categorías de INGRESO permitidas: Impresión y Producción Gráfica, Corte y Grabado (CNC/Láser), Diseño y Branding, Instalación y Montaje, Pago de Factura, Préstamo, Abono Trabajo, Deuda Pendiente, IVA Pendiente, Otros Ingresos.
         Categorías de GASTO permitidas: Materiales y Sustratos, Tintas e Insumos, Herramientas y Repuestos, Sueldos y Leyes Sociales, Honorarios, Servicios Básicos, Arriendo, Oficina, Bencina, Flete, Gasto Privado, Regalo, Pago de Préstamo, Pago Pendiente, Pago Tarjeta de Crédito (Personal), Pago Tarjeta de Crédito (Empresa), Pago de IVA, Otros Gastos.
         
-        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura:
+        Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta (SIN texto adicional antes ni después):
         {{
           "banco_detectado": "Nombre del Banco",
           "sugerencias": [
             {{
               "fecha": "YYYY-MM-DD",
-              "concepto": "Descripción completa de la transacción",
+              "concepto": "Descripción",
               "monto": 15000,
               "tipo": "Ingreso" o "Gasto",
-              "categoria": "Categoría exacta del listado",
+              "categoria": "Categoría exacta según la lista",
               "locked": true o false
             }}
           ]
@@ -247,10 +249,18 @@ async def upload_cartola(file: UploadFile = File(...)):
         """
         
         if modelo_vision is None:
-            return {"error": "La IA no está configurada (Falta GEMINI_API_KEY)"}
+            return {"error": "La IA no está configurada"}
             
         respuesta = modelo_vision.generate_content(prompt)
         texto_json = respuesta.text.replace('```json', '').replace('```', '').strip()
+        
+        # 🔥 LIMPIADOR DE SEGURIDAD: Extraer solo lo que está entre corchetes
+        import json
+        inicio = texto_json.find('{')
+        fin = texto_json.rfind('}') + 1
+        if inicio != -1 and fin != -1:
+            texto_json = texto_json[inicio:fin]
+            
         return json.loads(texto_json)
     except Exception as e:
         return {"error": str(e)}
