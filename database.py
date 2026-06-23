@@ -1,9 +1,8 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import date
-import os
 
 # Ahora el sistema buscará la clave secreta directamente en Render
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./creadesign_erp.db")
@@ -13,8 +12,6 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-
-# ... de aquí para abajo, tus clases Cliente, Material, etc. siguen igual ...
 class Material(Base):
     __tablename__ = "materiales"
     id = Column(Integer, primary_key=True, index=True)
@@ -66,7 +63,7 @@ class OrdenTrabajo(Base):
     descripcion = Column(Text)
     fecha_entrega = Column(Date)
     estado = Column(String, default="Pendiente")
-    link_diseno = Column(String, nullable=True) # <--- NUEVA COLUMNA PARA EL LINK
+    link_diseno = Column(String, nullable=True)
     fecha_creacion = Column(Date, default=date.today)
     cliente = relationship("Cliente")
     cotizacion = relationship("Cotizacion")
@@ -80,12 +77,16 @@ class Movimiento(Base):
     concepto = Column(String)
     fecha = Column(Date, default=date.today)
     estado_pago = Column(String, default="Pagado")
-    medio_pago = Column(String, default="Transferencia") # <--- NUEVA COLUMNA
+    medio_pago = Column(String, default="Transferencia")
+    # 🔥 NUEVAS COLUMNAS PARA FACTURAS, OT Y ROBO LEGAL 🔥
+    tipo_doc = Column(String, default="Boleta")
+    num_factura = Column(String, nullable=True)
+    ot_id = Column(String, nullable=True)
+    locked = Column(Boolean, default=False)
 
 class Usuario(Base):
     __tablename__ = "usuarios"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True)
-    password = Column(String) # Para este nivel usaremos texto plano, luego le ponemos hash
-    rol = Column(String) # 'Admin' o 'Taller'
-        
+    password = Column(String) 
+    rol = Column(String)
