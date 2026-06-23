@@ -36,8 +36,26 @@ else:
     modelo_vision = None
     print("⚠️ ADVERTENCIA: No se encontró la GEMINI_API_KEY en el servidor.")
 
-# 1. CREAR BASE DE DATOS
+# 1. CREAR BASE DE DATOS Y APLICAR PARCHE AUTOMÁTICO
 database.Base.metadata.create_all(bind=database.engine)
+
+def aplicar_parche_db():
+    db = database.SessionLocal()
+    try:
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo_doc VARCHAR DEFAULT 'Boleta'"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS num_factura VARCHAR"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS ot_id VARCHAR"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE"))
+        db.commit()
+        print("✅ Parche de base de datos aplicado con éxito.")
+    except Exception as e:
+        db.rollback()
+        print(f"⚠️ Nota de DB (normal si las columnas ya existen): {e}")
+    finally:
+        db.close()
+
+# Ejecutamos el parche apenas se enciende Render
+aplicar_parche_db()
 
 # 2. INICIAR LA APP
 app = FastAPI(title="API CREAdesign")
@@ -170,17 +188,6 @@ def eliminar_orden_trabajo(orden_id: int, db: Session = Depends(get_db)):
 # --- FINANZAS ---
 @app.get("/movimientos/", response_model=List[schemas.MovimientoResponse])
 def obtener_movimientos(db: Session = Depends(get_db)): 
-    # 🔥 PARCHE AUTOMÁTICO DE BASE DE DATOS 🔥
-    # Inyecta las columnas nuevas en Supabase si es que no existen
-    try:
-        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo_doc VARCHAR DEFAULT 'Boleta'"))
-        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS num_factura VARCHAR"))
-        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS ot_id VARCHAR"))
-        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE"))
-        db.commit()
-    except Exception:
-        db.rollback() # Si ya existen, simplemente lo ignora y sigue
-        
     return db.query(database.Movimiento).order_by(database.Movimiento.fecha.desc()).all()
 
 @app.post("/movimientos/", response_model=schemas.MovimientoResponse)
@@ -196,7 +203,6 @@ def update_movimiento(movimiento_id: int, mov: schemas.MovimientoCreate, db: Ses
     db_mov = db.query(database.Movimiento).filter(database.Movimiento.id == movimiento_id).first()
     if not db_mov: raise HTTPException(status_code=404, detail="Movimiento no encontrado")
     
-    # Actualiza todos los campos nuevos y viejos
     for key, value in mov.model_dump().items():
         setattr(db_mov, key, value)
         
@@ -261,7 +267,6 @@ async def upload_cartola(file: UploadFile = File(...)):
         respuesta = modelo_vision.generate_content(prompt)
         texto_json = respuesta.text.replace('```json', '').replace('```', '').strip()
         
-        # 🔥 LIMPIADOR DE SEGURIDAD: Extraer solo lo que está entre corchetes
         import json
         inicio = texto_json.find('{')
         fin = texto_json.rfind('}') + 1
