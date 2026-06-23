@@ -36,7 +36,7 @@ else:
     modelo_vision = None
     print("⚠️ ADVERTENCIA: No se encontró la GEMINI_API_KEY en el servidor.")
 
-# 1. CREAR BASE DE DATOS (Ahora en Supabase)
+# 1. CREAR BASE DE DATOS
 database.Base.metadata.create_all(bind=database.engine)
 
 # 2. INICIAR LA APP
@@ -168,6 +168,21 @@ def eliminar_orden_trabajo(orden_id: int, db: Session = Depends(get_db)):
     return {"mensaje": "Orden eliminada"}
 
 # --- FINANZAS ---
+@app.get("/movimientos/", response_model=List[schemas.MovimientoResponse])
+def obtener_movimientos(db: Session = Depends(get_db)): 
+    # 🔥 PARCHE AUTOMÁTICO DE BASE DE DATOS 🔥
+    # Inyecta las columnas nuevas en Supabase si es que no existen
+    try:
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo_doc VARCHAR DEFAULT 'Boleta'"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS num_factura VARCHAR"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS ot_id VARCHAR"))
+        db.execute(text("ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE"))
+        db.commit()
+    except Exception:
+        db.rollback() # Si ya existen, simplemente lo ignora y sigue
+        
+    return db.query(database.Movimiento).order_by(database.Movimiento.fecha.desc()).all()
+
 @app.post("/movimientos/", response_model=schemas.MovimientoResponse)
 def crear_movimiento(movimiento: schemas.MovimientoCreate, db: Session = Depends(get_db)):
     nuevo_movimiento = database.Movimiento(**movimiento.model_dump())
@@ -176,32 +191,24 @@ def crear_movimiento(movimiento: schemas.MovimientoCreate, db: Session = Depends
     db.refresh(nuevo_movimiento)
     return nuevo_movimiento
 
-@app.get("/movimientos/", response_model=List[schemas.MovimientoResponse])
-def obtener_movimientos(db: Session = Depends(get_db)): 
-    return db.query(database.Movimiento).order_by(database.Movimiento.fecha.desc()).all()
+@app.put("/movimientos/{movimiento_id}")
+def update_movimiento(movimiento_id: int, mov: schemas.MovimientoCreate, db: Session = Depends(get_db)):
+    db_mov = db.query(database.Movimiento).filter(database.Movimiento.id == movimiento_id).first()
+    if not db_mov: raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    
+    # Actualiza todos los campos nuevos y viejos
+    for key, value in mov.model_dump().items():
+        setattr(db_mov, key, value)
+        
+    db.commit()
+    db.refresh(db_mov)
+    return db_mov
 
 @app.delete("/movimientos/{mov_id}")
 def eliminar_movimiento(mov_id: int, db: Session = Depends(get_db)):
     db_mov = db.query(database.Movimiento).filter(database.Movimiento.id == mov_id).first()
     if db_mov: db.delete(db_mov); db.commit()
     return {"mensaje": "Movimiento eliminado"}
-
-@app.put("/movimientos/{movimiento_id}")
-def update_movimiento(movimiento_id: int, mov: schemas.MovimientoBase, db: Session = Depends(get_db)):
-    db_mov = db.query(database.Movimiento).filter(database.Movimiento.id == movimiento_id).first()
-    if not db_mov: raise HTTPException(status_code=404, detail="Movimiento no encontrado")
-    
-    db_mov.tipo = mov.tipo
-    db_mov.categoria = mov.categoria
-    db_mov.monto = mov.monto
-    db_mov.concepto = mov.concepto
-    db_mov.fecha = mov.fecha
-    db_mov.estado_pago = mov.estado_pago
-    db_mov.medio_pago = mov.medio_pago
-    
-    db.commit()
-    db.refresh(db_mov)
-    return db_mov
 
 # --- LECTORES INTELIGENTES ---
 @app.post("/upload-cartola/")
@@ -515,7 +522,8 @@ def borrar_usuario(id: int, db: Session = Depends(get_db)):
     db.execute(text("DELETE FROM usuarios WHERE id = :id"), {"id": id})
     db.commit()
     return {"msg": "Borrado"}
-    # ==========================================
+
+# ==========================================
 # GESTIÓN DE APUNTES Y PENDIENTES (SINCRO NUBE)
 # ==========================================
 class TareaCreate(BaseModel):
