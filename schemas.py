@@ -21,8 +21,6 @@ class MaterialBase(BaseModel):
     stock_actual: float = 0.0
     costo_unitario: int
 
-# ... (y de aquí para abajo sigue el resto de tu código normal)
-
 class MaterialCreate(MaterialBase): pass
 class MaterialResponse(MaterialBase):
     id: int
@@ -92,7 +90,12 @@ class MovimientoBase(BaseModel):
     concepto: str
     fecha: date
     estado_pago: str = "Pagado"
-    medio_pago: str = "Transferencia" # <--- NUEVA COLUMNA
+    medio_pago: str = "Transferencia" 
+    # 🔥 AQUI VAN LOS GUARDIAS NUEVOS PARA FACTURAS, OT Y F29 🔥
+    tipo_doc: str = "Boleta"
+    num_factura: Optional[str] = None
+    ot_id: Optional[str] = None
+    locked: bool = False
 
 class MovimientoCreate(MovimientoBase): pass
 class MovimientoResponse(MovimientoBase):
